@@ -21,8 +21,10 @@ limitations under the License.
 #include "third_party/eigen3/unsupported/Eigen/CXX11/Tensor"
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/op_kernel.h"
+#include "tensorflow/core/framework/register_types.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor_shape.h"
+#include "tensorflow/core/framework/type_traits.h"
 #include "tensorflow/core/framework/types.h"
 #include "tensorflow/core/kernels/fill_functor.h"
 #include "tensorflow/core/platform/logging.h"
@@ -152,9 +154,12 @@ template <typename Scalar>
 struct LaunchBatchMatMul<GPUDevice, Scalar> {
   static void Launch(OpKernelContext* context, const Tensor& in_x,
                      const Tensor& in_y, bool adj_x, bool adj_y, Tensor* out) {
+    constexpr perftools::gputools::blas::Transpose kTranspose =
+        is_complex<Scalar>::value
+            ? perftools::gputools::blas::Transpose::kConjugateTranspose
+            : perftools::gputools::blas::Transpose::kTranspose;
     perftools::gputools::blas::Transpose trans[] = {
-        perftools::gputools::blas::Transpose::kNoTranspose,
-        perftools::gputools::blas::Transpose::kTranspose};
+        perftools::gputools::blas::Transpose::kNoTranspose, kTranspose};
     const uint64 m = in_x.dim_size(adj_x ? 2 : 1);
     const uint64 k = in_x.dim_size(adj_x ? 1 : 2);
     const uint64 n = in_y.dim_size(adj_y ? 1 : 2);
@@ -294,14 +299,21 @@ class BatchMatMul : public OpKernel {
       Name("BatchMatMul").Device(DEVICE_GPU).TypeConstraint<TYPE>("T"), \
       BatchMatMul<GPUDevice, TYPE>)
 
-REGISTER_CPU(float);
-REGISTER_CPU(double);
-REGISTER_CPU(int32);
-REGISTER_CPU(complex64);
-REGISTER_CPU(complex128);
+TF_CALL_float(REGISTER_CPU);
+TF_CALL_double(REGISTER_CPU);
+TF_CALL_half(REGISTER_CPU);
+TF_CALL_int32(REGISTER_CPU);
+TF_CALL_complex64(REGISTER_CPU);
+TF_CALL_complex128(REGISTER_CPU);
 
-#ifdef GOOGLE_CUDA
-REGISTER_GPU(float);
+#if GOOGLE_CUDA
+TF_CALL_float(REGISTER_GPU);
+TF_CALL_double(REGISTER_GPU);
+TF_CALL_complex64(REGISTER_GPU);
+TF_CALL_complex128(REGISTER_GPU);
+#if CUDA_VERSION >= 7050
+TF_CALL_half(REGISTER_GPU);
+#endif
 #endif  // GOOGLE_CUDA
 
 #undef REGISTER_CPU

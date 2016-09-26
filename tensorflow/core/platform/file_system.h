@@ -24,6 +24,7 @@ limitations under the License.
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/lib/core/stringpiece.h"
+#include "tensorflow/core/platform/file_statistics.h"
 #include "tensorflow/core/platform/macros.h"
 #include "tensorflow/core/platform/protobuf.h"
 #include "tensorflow/core/platform/types.h"
@@ -60,6 +61,8 @@ class FileSystem {
   virtual Status GetChildren(const string& dir,
                              std::vector<string>* result) = 0;
 
+  virtual Status Stat(const string& fname, FileStatistics* stat) = 0;
+
   virtual Status DeleteFile(const string& fname) = 0;
 
   virtual Status CreateDir(const string& dirname) = 0;
@@ -71,10 +74,21 @@ class FileSystem {
   virtual Status RenameFile(const string& src, const string& target) = 0;
 
   // Translate an URI to a filename usable by the FileSystem implementation. The
-  // implementation in this class returns the name as-is.
+  // implementation in this class cleans up the path, removing duplicate /'s,
+  // resolving .. and . (more details in tensorflow::lib::io::CleanPath).
   virtual string TranslateName(const string& name) const;
+
+  // Returns whether the given path is a directory or not.
+  // Typical return codes (not guaranteed exhaustive):
+  //  * OK - The path exists and is a directory.
+  //  * FAILED_PRECONDITION - The path exists and is not a directory.
+  //  * NOT_FOUND - The path entry does not exist.
+  //  * PERMISSION_DENIED - Insufficient permissions.
+  //  * UNIMPLEMENTED - The file factory doesn't support directories.
+  virtual Status IsDirectory(const string& fname);
 };
 
+#ifndef SWIG
 // Degenerate file system that provides no implementations.
 class NullFileSystem : public FileSystem {
  public:
@@ -129,7 +143,12 @@ class NullFileSystem : public FileSystem {
   Status RenameFile(const string& src, const string& target) override {
     return errors::Unimplemented("RenameFile unimplemented");
   }
+
+  Status Stat(const string& fname, FileStatistics* stat) override {
+    return errors::Unimplemented("Stat unimplemented");
+  }
 };
+#endif
 
 /// A file abstraction for randomly reading the contents of a file.
 class RandomAccessFile {
@@ -156,9 +175,7 @@ class RandomAccessFile {
                       char* scratch) const = 0;
 
  private:
-  /// No copying allowed
-  RandomAccessFile(const RandomAccessFile&);
-  void operator=(const RandomAccessFile&);
+  TF_DISALLOW_COPY_AND_ASSIGN(RandomAccessFile);
 };
 
 /// \brief A file abstraction for sequential writing.
@@ -176,9 +193,7 @@ class WritableFile {
   virtual Status Sync() = 0;
 
  private:
-  /// No copying allowed
-  WritableFile(const WritableFile&);
-  void operator=(const WritableFile&);
+  TF_DISALLOW_COPY_AND_ASSIGN(WritableFile);
 };
 
 /// \brief A readonly memmapped file abstraction.
@@ -210,11 +225,14 @@ class FileSystemRegistry {
       std::vector<string>* schemes) = 0;
 };
 
-// Given URI of the form [scheme://]<filename>, return 'scheme'.
-string GetSchemeFromURI(const string& name);
-
-// Given URI of the form [scheme://]<filename>, return 'filename'.
-string GetNameFromURI(const string& name);
+// Populates the scheme, host, and path from a URI.
+//
+// Corner cases:
+// - If the URI is invalid, scheme and host are set to empty strings and the
+//   passed string is assumed to be a path
+// - If the URI omits the path (e.g. file://host), then the path is left empty.
+void ParseURI(StringPiece uri, StringPiece* scheme, StringPiece* host,
+              StringPiece* path);
 
 }  // namespace tensorflow
 
