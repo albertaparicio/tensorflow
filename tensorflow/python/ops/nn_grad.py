@@ -82,6 +82,34 @@ def _Conv3DGrad(op, grad):
                                            padding=op.get_attr("padding"))]
 
 
+@ops.RegisterGradient("Conv3DBackpropInputV2")
+def _Conv3DBackpropInputGrad(op, grad):
+  return [None,
+          nn_ops.conv3d_backprop_filter_v2(grad,
+                                           array_ops.shape(op.inputs[1]),
+                                           op.inputs[2],
+                                           strides=op.get_attr("strides"),
+                                           padding=op.get_attr("padding")),
+          nn_ops.conv3d(grad,
+                        op.inputs[1],
+                        strides=op.get_attr("strides"),
+                        padding=op.get_attr("padding"))]
+
+
+@ops.RegisterGradient("Conv3DBackpropFilterV2")
+def _Conv3DBackpropFilterGrad(op, grad):
+  return [nn_ops.conv3d_backprop_input_v2(array_ops.shape(op.inputs[0]),
+                                          grad,
+                                          op.inputs[2],
+                                          strides=op.get_attr("strides"),
+                                          padding=op.get_attr("padding")),
+          None,
+          nn_ops.conv3d(op.inputs[0],
+                        grad,
+                        strides=op.get_attr("strides"),
+                        padding=op.get_attr("padding"))]
+
+
 @ops.RegisterGradient("AvgPool3D")
 def _AvgPool3DGrad(op, grad):
   return nn_ops.avg_pool3d_grad(
@@ -331,6 +359,53 @@ def _MaxPoolGrad(op, grad):
                                    op.get_attr("strides"),
                                    padding=op.get_attr("padding"),
                                    data_format=op.get_attr("data_format"))
+
+
+@ops.RegisterGradient("FractionalMaxPool")
+def _FractionalMaxPoolGrad(op, grad_0, unused_grad_1, unused_grad_2):
+  """Returns gradient for FractionalMaxPool.
+
+  Since FractionalMaxPool has three outputs, there are three gradients passed in
+  for each of the outputs. Only the first one is useful, the other two gradients
+  are empty.
+
+  Args:
+    op: The FractionalMaxPoolOp.
+    grad_0: Gradient with respect to op.outputs[0]
+    unused_grad_1: Gradient with respect to op.outputs[1]/row_seq. It is empty.
+    unused_grad_2: Gradient with respect to op.outputs[2]/col_seq. It is empty.
+
+  Returns:
+    Input backprop for FractionalMaxPool op.
+  """
+  # pylint: disable=protected-access
+  return gen_nn_ops._fractional_max_pool_grad(op.inputs[0], op.outputs[0],
+                                              grad_0, op.outputs[1],
+                                              op.outputs[2],
+                                              op.get_attr("overlapping"))
+
+
+@ops.RegisterGradient("FractionalAvgPool")
+def _FractionalAvgPoolGrad(op, grad_0, unused_grad_1, unused_grad_2):
+  """Returns gradient for FractionalAvgPool.
+
+  Since FractionalAvgPool has three outputs, there are three gradients passed in
+  for each of the outputs. Only the first one is useful, the other two gradients
+  are empty.
+
+  Args:
+    op: The FractionalAvgPoolOp.
+    grad_0: Gradient with respect to op.outputs[0]
+    unused_grad_1: Gradient with respect to op.outputs[1]/row_seq. It is empty.
+    unused_grad_2: Gradient with respect to op.outputs[2]/col_seq. It is empty.
+
+  Returns:
+    Input backprop for FractionalAvgPool op.
+  """
+  # pylint: disable=protected-access
+  return gen_nn_ops._fractional_avg_pool_grad(op.inputs[0].get_shape(), grad_0,
+                                              op.outputs[1], op.outputs[2],
+                                              op.get_attr("overlapping"))
 
 
 @ops.RegisterGradient("BatchNormWithGlobalNormalization")
